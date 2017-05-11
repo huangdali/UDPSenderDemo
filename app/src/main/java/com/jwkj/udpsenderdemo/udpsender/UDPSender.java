@@ -2,7 +2,6 @@ package com.jwkj.udpsenderdemo.udpsender;
 
 import android.os.Handler;
 import android.os.Message;
-import android.util.Log;
 
 import com.socks.library.KLog;
 
@@ -21,26 +20,12 @@ import java.nio.channels.Selector;
 import java.util.Iterator;
 
 /**
- * UDP发送器
+ * UDP发送器---不对包外提供服务
  * <p> -不建议直接在使用此类来发送UDP，而是通过{@link UDPManger}来发送，如后续业务有调整只需修改UDPManger，
  * 而不用找到所有调用UDPSender的地方修改逻辑（只需修改UDPManger即可），便于后期维护 </p>
  */
-public class UDPSender {
+class UDPSender {
     private static final String TAG = "UDPSender";
-    private static UDPSender udpSender;
-
-    private UDPSender() {
-    }
-
-    public static UDPSender getInstance() {
-        if (udpSender == null) {
-            synchronized (UDPSender.class) {
-                udpSender = new UDPSender();
-            }
-        }
-        return udpSender;
-    }
-
     /**
      * 默认端口
      */
@@ -65,17 +50,19 @@ public class UDPSender {
     /**
      * 请求的端口，默认为8899
      */
-    private int port = DEFAULT_PORT;
+    private int targetPort = DEFAULT_PORT;
+
+    /**
+     * 本机接收的端口，默认为8899
+     */
+    private int receivePort = DEFAULT_PORT;
+
     /**
      * 接收超时时间,
-     * <p>当UDPSender接收数据时，如果超过了shakeTimeOut还是没有响应，那么一般就是已经搜索完成了，这次可根据这个值来判断是否要结束搜索 </p>
+     * <p>当UDPSender接收数据时，如果超过了shakeTimeOut还是没有响应，那么一般就是已经搜索完成了，此时可根据这个值来判断是否要结束搜索 </p>
      * <p>默认8s，5是时间因子</p>
      */
-    private int receiveTimeOut = 8 * 5;
-    /**
-     * 接收数据时的标记,默认为2
-     */
-    private int receiveCmdFlag = 2;
+    private int receiveTimeOut = 10 * 1000;
 
 
     /**
@@ -112,6 +99,14 @@ public class UDPSender {
      */
     private UDPResultCallback callback;
     /**
+     * 请求结果
+     */
+    private UDPResult result;
+    /**
+     * 最后一次接收的时间
+     */
+    private long lastReciveTime = System.currentTimeMillis();
+    /**
      * 用于主线程于子线程之间通讯
      */
     private Handler handler = new Handler() {
@@ -122,30 +117,22 @@ public class UDPSender {
                     callback.onStart();
                     break;
                 case WHAT_SENDER_NEXT:
-                    UDPResult result = (UDPResult) msg.obj;
+                    result = (UDPResult) msg.obj;
                     callback.onNext(result);
+                    lastReciveTime = System.currentTimeMillis();//记录最后一次接收的时间
                     break;
                 case WHAT_SENDER_FINISHED:
+                    closeTask();
                     callback.onCompleted();
                     break;
                 case WHAT_SENDER_ERROR:
+                    closeTask();
                     Throwable throwable = (Throwable) msg.obj;
                     callback.onError(throwable);
                     break;
             }
         }
     };
-
-    /**
-     * 设置接收数据时的标记，默认为2
-     *
-     * @param receiveCmdFlag
-     * @return
-     */
-    public UDPSender setReceiveCmdFlag(int receiveCmdFlag) {
-        this.receiveCmdFlag = receiveCmdFlag;
-        return this;
-    }
 
     /**
      * 获取运行状态
@@ -162,22 +149,33 @@ public class UDPSender {
      * @param receiveTimeOut
      */
     public UDPSender setReceiveTimeOut(int receiveTimeOut) {
-        this.receiveTimeOut = (receiveTimeOut / 1000) * 5;//5是时间因子
+        this.receiveTimeOut = receiveTimeOut;//5是时间因子
         return this;
     }
 
     /**
      * 设置请求端口
      *
-     * @param port 请求端口号，默认为8899，范围是1024-65535
+     * @param targetPort 请求端口号，默认为8899，范围是1024-65535
      * @return 当前发送器对象
      */
-    public UDPSender setPort(int port) {
-        if (port < 1024 & port > 65535) {
-            this.port = DEFAULT_PORT;
+    public UDPSender setTargetPort(int targetPort) {
+        if (targetPort < 1024 & targetPort > 65535) {
+            this.targetPort = DEFAULT_PORT;
             return this;
         }
-        this.port = port;
+        this.targetPort = targetPort;
+        return this;
+    }
+
+    /**
+     * 设置请求端口
+     *
+     * @param receivePort 本机端口号，默认为8899，范围是1024-65535
+     * @return 当前发送器对象
+     */
+    public UDPSender setReceivePort(int receivePort) {
+        this.receivePort = receivePort;
         return this;
     }
 
@@ -195,7 +193,7 @@ public class UDPSender {
                 serverSocket.close();
             }
             serverSocket = channel.socket();// 通过通道拿到UDP数据包的Socket
-            inetSocketAddress = new InetSocketAddress(port);
+            inetSocketAddress = new InetSocketAddress(targetPort);
             serverSocket.bind(inetSocketAddress);// 绑定端口号
             channel.register(selector, SelectionKey.OP_READ);// 注册通道到选择器，并加上读取操作的选择键/事件
 
@@ -239,6 +237,13 @@ public class UDPSender {
     }
 
     /**
+     * 停止发送/接收
+     */
+    public void stop() {
+        closeTask();
+    }
+
+    /**
      * 开始发送
      */
     public void send(UDPResultCallback callback) {
@@ -272,6 +277,9 @@ public class UDPSender {
     private void closeTask() {
         try {
             //都需要先判断是不是空并且是不是打开的
+            if (isRunning()) {
+                isRunning = true;
+            }
             if (selector.isOpen()) {
                 selector.wakeup();
                 selector.close();
@@ -312,7 +320,6 @@ public class UDPSender {
      * @throws InterruptedException
      */
     private void receiveData(ByteBuffer receiveBuffer) throws IOException, InterruptedException {
-        int count = 0;//同于统计有多少次没有接收到结果
         while (isRunning) {
             int readyCount = 0;
             try {
@@ -322,14 +329,13 @@ public class UDPSender {
                 handlerError(e);
                 e.printStackTrace();
             }
-            count++;//统计接收的
-            if (count > receiveTimeOut) {//如果超过了指定的时间，还是没有接收到数据，那么就停止搜索
+            long currentReciveTime = System.currentTimeMillis();//记录当前接收时间
+            if (receiveTimeOut < currentReciveTime - lastReciveTime) {//如果超过了指定的时间，还是没有接收到数据，那么就停止搜索
                 isRunning = false;// 结束搜索
                 handler.sendEmptyMessage(WHAT_SENDER_FINISHED);
             }
             if (readyCount > 0) {
-                Iterator<SelectionKey> iterator = selector.selectedKeys()
-                        .iterator();
+                Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
                 while (iterator.hasNext()) {
                     SelectionKey key = iterator.next();// 拿到当前循环的key
                     iterator.remove();// 移除本次循环
@@ -340,8 +346,7 @@ public class UDPSender {
                         receiveBuffer.flip();// 切换一下状态(写---->读)
                         receiveBuffer.limit(200);
                         // 拿到数据之后就开始处理
-                        if (receiveBuffer.getInt(0) == receiveCmdFlag) {//根据数据接收标记
-                            count = 0;// 复位
+                        if (isRunning) {
                             Message msg = handler.obtainMessage();
                             msg.what = WHAT_SENDER_NEXT;
                             String ip = clientAddress.getAddress().getHostAddress();
@@ -370,7 +375,7 @@ public class UDPSender {
         broadcastSocket = new DatagramSocket();// 创建UDP数据报套接字
         broadcastSocket.setBroadcast(true);// 设置为广播模式
         DatagramPacket packet = new DatagramPacket(datas, datas.length,
-                InetAddress.getByName("255.255.255.255"), port);// 构造UDP数据包
+                InetAddress.getByName("255.255.255.255"), targetPort);// 构造UDP数据包
         broadcastSocket.send(packet);// 发送
         return true;
     }

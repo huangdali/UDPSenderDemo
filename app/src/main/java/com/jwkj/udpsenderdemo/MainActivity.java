@@ -18,7 +18,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private TextView tvReuslt;
     private ProgressDialog mProgressDialog;
-    int count = 1;
+    private int count = 1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,13 +36,13 @@ public class MainActivity extends AppCompatActivity {
      */
     public void onStart(View view) {
 //        shakeSimple();//简单调用的例子
-        ShakeData data = new ShakeData();
+        final ShakeData data = new ShakeData();
         data.setCmd(ShakeData.Cmd.CMD_SHAKE_DEVICE);
         UDPManger.getInstance()
                 .setInstructions(ShakeData.getShakeDataCastByteArray(data))//设置发送的指令[必须，不可为空]
-                .setReceiveTimeOut(1000)//设置接收超时时间[可不写，默认为8s]
-                .setPort(ShakeData.Cmd.CMD_SHAKE_DEVICE_DEFAULT_PORT)//设置发送的端口[可不写，默认为8899端口]
-                .setReceiveCmdFlag(ShakeData.Cmd.CMD_RECEIVE_DEVICE)//设置接收设备的标记[可不写，默认为2]
+                .setReceiveTimeOut(10 * 1000)//设置接收超时时间[可不写，默认为8s]
+                .setTargetPort(ShakeData.Cmd.CMD_SHAKE_DEVICE_DEFAULT_PORT)//设置发送的端口[可不写，默认为8899端口]
+                .schedule(2, 3000)
                 .send(new UDPResultCallback() {
                     /**
                      * 请求开始的时候回调
@@ -62,10 +62,13 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onNext(UDPResult result) {
                         ShakeData dataResult = ShakeData.getShakeDataResult(result.getResultData());
+                        if (dataResult.getCmd() == ShakeData.Cmd.CMD_RECEIVE_MESSAGE_HEADER_CMDID) {
+
+                        }
                         int id = dataResult.getId();
                         String pwd = dataResult.getFlag() == 1 ? "有密码" : "无密码";
                         tvReuslt.append((count++) + ")\t ip = " + result.getIp() + "\t\t\tid = " + id + "\t\t\t" + pwd + "\n\n");
-                        KLog.e("result = "+dataResult.toString());
+                        KLog.e("result = " + dataResult.toString());
                     }
 
                     /**

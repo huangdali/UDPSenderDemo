@@ -17,7 +17,7 @@ public class ShakeData {
      */
     public static class Cmd {
         public static final int CMD_SHAKE_DEVICE = 1;//搜索的命令
-        public static final int CMD_RECEIVE_DEVICE = 2;//接收设备的命令
+        public static final int CMD_RECEIVE_MESSAGE_HEADER_CMDID = 2;//接收设备的命令【接收消息头的命令id---结束标记】
         public static final int CMD_SHAKE_DEVICE_DEFAULT_PORT = 8899;//搜索设备的端口号
     }
 
