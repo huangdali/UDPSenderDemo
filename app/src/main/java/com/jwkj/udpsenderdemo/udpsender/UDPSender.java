@@ -62,7 +62,7 @@ class UDPSender {
      * <p>当UDPSender接收数据时，如果超过了shakeTimeOut还是没有响应，那么一般就是已经搜索完成了，此时可根据这个值来判断是否要结束搜索 </p>
      * <p>默认8s，5是时间因子</p>
      */
-    private int receiveTimeOut = 10 * 1000;
+    private long receiveTimeOut = 10 * 1000;
 
 
     /**
@@ -148,7 +148,7 @@ class UDPSender {
      *
      * @param receiveTimeOut
      */
-    public UDPSender setReceiveTimeOut(int receiveTimeOut) {
+    public UDPSender setReceiveTimeOut(long receiveTimeOut) {
         this.receiveTimeOut = receiveTimeOut;//5是时间因子
         return this;
     }
@@ -175,6 +175,10 @@ class UDPSender {
      * @return 当前发送器对象
      */
     public UDPSender setReceivePort(int receivePort) {
+        if (receivePort < 1024 & receivePort > 65535) {
+            this.receivePort = DEFAULT_PORT;
+            return this;
+        }
         this.receivePort = receivePort;
         return this;
     }
@@ -254,7 +258,7 @@ class UDPSender {
             public void run() {
                 handler.sendEmptyMessage(WHAT_SENDER_START);//开始任务了
                 try {
-                    ByteBuffer receiveBuffer = ByteBuffer.allocate(256);// 用于接收响应的buffer
+                    ByteBuffer receiveBuffer = ByteBuffer.allocate(1024);// 用于接收响应的buffer
                     if (initServer()) {// 初始化通道及选择器,成功了才发数据
                         if (sendBroadcast(instructions)) {//发送广播,发送成功了才接收数据
                             receiveData(receiveBuffer);//接收数据
@@ -278,7 +282,7 @@ class UDPSender {
         try {
             //都需要先判断是不是空并且是不是打开的
             if (isRunning()) {
-                isRunning = true;
+                isRunning = false;
             }
             if (selector.isOpen()) {
                 selector.wakeup();
@@ -330,6 +334,8 @@ class UDPSender {
                 e.printStackTrace();
             }
             long currentReciveTime = System.currentTimeMillis();//记录当前接收时间
+
+
             if (receiveTimeOut < currentReciveTime - lastReciveTime) {//如果超过了指定的时间，还是没有接收到数据，那么就停止搜索
                 isRunning = false;// 结束搜索
                 handler.sendEmptyMessage(WHAT_SENDER_FINISHED);

@@ -1,6 +1,9 @@
 package com.jwkj.udpsenderdemo.udpsender;
 
 
+import android.os.Handler;
+import android.os.Message;
+
 /**
  * UDP管理器，隔离UDP实现层逻辑
  * Created by dali on 2017/4/14.
@@ -22,14 +25,24 @@ public class UDPManger {
     }
 
     /**
-     * 接收数据超时时间
+     * 拿到一个结果
      */
-    private int receiveTimeOut = 8 * 1000;//默认8s
+    private static final int WHAT_TASK_NEXT = 711;
+    /**
+     * 任务结束
+     */
+    private static final int WHAT_TASK_FINSHED = 95;
+    /**
+     * 任务错误
+     */
+    private static final int WHAT_TASK_ERROR = 123;
 
     /**
-     * 指定数组（字节）
+     * 接收数据超时时间
      */
-    private byte[] instructions;
+    private long receiveTimeOut = 8 * 1000;//默认8s
+
+
     /**
      * 目标端口，默认为8899
      */
@@ -38,8 +51,11 @@ public class UDPManger {
     /**
      * 本机接收端口，默认为8899
      */
-    private int receivePort = UDPSender.DEFAULT_PORT;
-
+    private int localReceivePort = UDPSender.DEFAULT_PORT;
+    /**
+     * 指定数组（字节）
+     */
+    private byte[] instructions;
 
     /**
      * 设置接收超时时间
@@ -47,7 +63,7 @@ public class UDPManger {
      * @param receiveTimeOut 超时时间
      * @return
      */
-    public UDPManger setReceiveTimeOut(int receiveTimeOut) {
+    public UDPManger setReceiveTimeOut(long receiveTimeOut) {
         this.receiveTimeOut = receiveTimeOut;
         return this;
     }
@@ -61,6 +77,27 @@ public class UDPManger {
      * 上一次结束时到下一次开始的时间，默认10s
      */
     private long delay = 10 * 1000;
+
+    private Handler handler = new Handler() {
+        UDPResult result;
+
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case WHAT_TASK_NEXT:
+                    result = (UDPResult) msg.obj;
+                    callback.onNext(result);
+                    break;
+                case WHAT_TASK_ERROR:
+                    Throwable throwable = (Throwable) msg.obj;
+                    callback.onError(throwable);
+                    break;
+                case WHAT_TASK_FINSHED:
+                    callback.onCompleted();
+                    break;
+            }
+        }
+    };
 
     /**
      * 设置指令
@@ -87,11 +124,11 @@ public class UDPManger {
     /**
      * 设置请求端口
      *
-     * @param receivePort 本机接收端口号，默认为8899，范围是1024-65535
+     * @param localReceivePort 本机接收端口号，默认为8899，范围是1024-65535
      * @return 当前发送器对象
      */
-    public UDPManger setReceivePort(int receivePort) {
-        this.receivePort = receivePort;
+    public UDPManger setLocalReceivePort(int localReceivePort) {
+        this.localReceivePort = localReceivePort;
         return this;
     }
 
@@ -113,24 +150,32 @@ public class UDPManger {
 
     private void startTask() {
         if (udpSender != null && udpSender.isRunning()) {
-            callback.onError(new Throwable("Task running"));//任务执行中
-            callback.onCompleted();
+            Message msg = handler.obtainMessage();
+            msg.obj = new Throwable("Task running");
+            msg.what = WHAT_TASK_ERROR;
+            handler.sendMessage(msg);
+            handler.sendEmptyMessage(WHAT_TASK_FINSHED);
         } else {
             udpSender = new UDPSender();//重新创建对象
             udpSender.setInstructions(instructions)//设置请求指令
                     .setTargetPort(targetPort)//设置搜索设备的端口
-                    .setReceivePort(receivePort)//设置搜索设备的端口
-                    .setReceiveTimeOut(receiveTimeOut)//设置搜索超时时间
+                    .setReceivePort(localReceivePort)//设置搜索设备的端口
+                    .setReceiveTimeOut(receiveTimeOut + (currentCount - 1) * delay)//设置搜索超时时间,还要加上延迟时间（这样就可以不用定时了）
                     .send(new UDPResultCallback() {
                         @Override
                         public void onNext(UDPResult result) {
-//                            ELog.hdl("拿到结果了" + result);
-                            callback.onNext(result);
+                            Message msg = handler.obtainMessage();
+                            msg.obj = result;
+                            msg.what = WHAT_TASK_NEXT;
+                            handler.sendMessage(msg);
                         }
 
                         @Override
                         public void onError(Throwable throwable) {
-                            callback.onError(throwable);
+                            Message msg = handler.obtainMessage();
+                            msg.obj = throwable;
+                            msg.what = WHAT_TASK_ERROR;
+                            handler.sendMessage(msg);
                         }
 
                         @Override
@@ -140,7 +185,7 @@ public class UDPManger {
                                 startTask();
                             } else {
                                 currentCount = 0;//要复位
-                                callback.onCompleted();
+                                handler.sendEmptyMessage(WHAT_TASK_FINSHED);
                             }
                         }
                     });

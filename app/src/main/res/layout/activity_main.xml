@@ -16,6 +16,11 @@
         android:layout_height="wrap_content"
         android:onClick="onStart"
         android:text="开始扫描" />
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:onClick="onStop"
+        android:text="停止任务" />
 
     <ScrollView
         android:layout_width="match_parent"

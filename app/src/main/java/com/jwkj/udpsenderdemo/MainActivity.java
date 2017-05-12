@@ -40,9 +40,10 @@ public class MainActivity extends AppCompatActivity {
         data.setCmd(ShakeData.Cmd.CMD_SHAKE_DEVICE);
         UDPManger.getInstance()
                 .setInstructions(ShakeData.getShakeDataCastByteArray(data))//设置发送的指令[必须，不可为空]
-                .setReceiveTimeOut(10 * 1000)//设置接收超时时间[可不写，默认为8s]
+                .setReceiveTimeOut(10 * 1000)//设置接收超时时间[可不写，默认为8s]--超过10s没有接收到设备就视为无设备了就可以停止当前任务了
                 .setTargetPort(ShakeData.Cmd.CMD_SHAKE_DEVICE_DEFAULT_PORT)//设置发送的端口[可不写，默认为8899端口]
-                .schedule(2, 3000)
+                .setLocalReceivePort(ShakeData.Cmd.CMD_SHAKE_DEVICE_DEFAULT_PORT_RECEIVE)//设置本机接收的端口[可不写，默认为8899端口]
+                .schedule(2, 3000)//执行2次，间隔三秒执行
                 .send(new UDPResultCallback() {
                     /**
                      * 请求开始的时候回调
@@ -118,5 +119,14 @@ public class MainActivity extends AppCompatActivity {
                         tvReuslt.append((count++) + ")\t ip = " + result.getIp() + "\t\t\tid = " + id + "\t\t\t" + pwd + "\n\n");
                     }
                 });
+    }
+
+    /**
+     * 停止任务
+     *
+     * @param view
+     */
+    public void onStop(View view) {
+        UDPManger.getInstance().stop();
     }
 }
